@@ -2,12 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  createCheckoutSessionPayload,
-  getStripeConfigPayload,
-  resolveOriginFromHeaders,
-  verifyStripeSessionPayload,
-} from './api/_lib/stripeBackend.ts';
+import { resolveStripeKeys } from './api/stripe/config.ts';
+import { processCreateCheckoutSession } from './api/stripe/create-checkout-session.ts';
+import { processVerifyStripeSession } from './api/stripe/verify-session.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,14 +16,14 @@ async function startServer() {
   app.use(express.json({ limit: '64kb' }));
 
   app.get('/api/stripe/config', (_req, res) => {
-    res.json(getStripeConfigPayload());
+    res.json(resolveStripeKeys());
   });
 
   app.post('/api/stripe/create-checkout-session', async (req, res) => {
     try {
-      const result = await createCheckoutSessionPayload({
+      const result = await processCreateCheckoutSession({
         authHeader: req.headers.authorization,
-        origin: resolveOriginFromHeaders(req.headers as Record<string, unknown>),
+        headers: req.headers as Record<string, unknown>,
         body: req.body || {},
       });
       res.json(result);
@@ -40,7 +37,7 @@ async function startServer() {
 
   app.post('/api/stripe/verify-session', async (req, res) => {
     try {
-      const result = await verifyStripeSessionPayload({
+      const result = await processVerifyStripeSession({
         authHeader: req.headers.authorization,
         sessionId: req.body?.sessionId,
       });

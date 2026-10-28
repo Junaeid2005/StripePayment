@@ -71,8 +71,7 @@ export async function seedDefaultMenuToFirestore(): Promise<void> {
 export interface CreateCheckoutResponse {
   orderId: string;
   sessionId: string;
-  clientSecret?: string;
-  hostedUrl?: string;
+  hostedUrl: string;
   orderNumber: string;
   totalPence: number;
 }
@@ -81,7 +80,6 @@ export async function initiateStripeOrder(params: {
   cart: CartItem[];
   diningOption: DiningOption;
   tableOrNote: string;
-  checkoutMode: 'embedded' | 'hosted';
 }): Promise<CreateCheckoutResponse> {
   const currentUser = auth.currentUser;
   if (!currentUser || !currentUser.email) {
@@ -102,14 +100,12 @@ export async function initiateStripeOrder(params: {
         quantity: c.quantity,
       })),
       diningOption: params.diningOption,
-      checkoutMode: params.checkoutMode,
     }),
   });
 
-  const payload = (await res.json()) as {
+  let payload: {
     error?: string;
     sessionId?: string;
-    clientSecret?: string;
     hostedUrl?: string;
     orderNumber?: string;
     validatedItems?: Array<{
@@ -123,7 +119,21 @@ export async function initiateStripeOrder(params: {
     totalPence?: number;
   };
 
-  if (!res.ok || !payload.sessionId || !payload.validatedItems || !payload.orderNumber) {
+  try {
+    payload = (await res.json()) as typeof payload;
+  } catch {
+    throw new Error(
+      `Payment server returned HTTP ${res.status}. Ensure STRIPE_SECRET_KEY is configured and redeployed.`
+    );
+  }
+
+  if (
+    !res.ok ||
+    !payload.sessionId ||
+    !payload.hostedUrl ||
+    !payload.validatedItems ||
+    !payload.orderNumber
+  ) {
     throw new Error(payload.error || 'Could not create Stripe Checkout session.');
   }
 
@@ -195,7 +205,6 @@ export async function initiateStripeOrder(params: {
   return {
     orderId,
     sessionId: payload.sessionId,
-    clientSecret: payload.clientSecret,
     hostedUrl: payload.hostedUrl,
     orderNumber: payload.orderNumber,
     totalPence: payload.totalPence ?? 100,

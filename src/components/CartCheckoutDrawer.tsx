@@ -1,11 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { loadStripe, type Stripe as StripeJs } from '@stripe/stripe-js';
-import {
-  EmbeddedCheckout,
-  EmbeddedCheckoutProvider,
-} from '@stripe/react-stripe-js';
+import { useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle,
+  ArrowRight,
   CheckCircle2,
   ExternalLink,
   Lock,
@@ -37,10 +33,9 @@ interface CartCheckoutDrawerProps {
   onUpdateQuantity: (itemId: string, delta: number) => void;
   onClearCart: () => void;
   onChangeView: (view: ActiveView) => void;
-  stripePublishableKey: string;
 }
 
-type DrawerStep = 'bag' | 'embedded_checkout' | 'hosted_waiting' | 'paid_receipt';
+type DrawerStep = 'bag' | 'iframe_redirect_bridge' | 'paid_receipt';
 
 export function CartCheckoutDrawer({
   isOpen,
@@ -49,27 +44,20 @@ export function CartCheckoutDrawer({
   onUpdateQuantity,
   onClearCart,
   onChangeView,
-  stripePublishableKey,
 }: CartCheckoutDrawerProps) {
   const { user, signInWithGoogle, signingIn } = useAuth();
 
   const [step, setStep] = useState<DrawerStep>('bag');
   const [diningOption, setDiningOption] = useState<DiningOption>('Dine In');
   const [tableOrNote, setTableOrNote] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeOrderNumber, setActiveOrderNumber] = useState<string>('');
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [hostedUrl, setHostedUrl] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<StripeVerificationResult | null>(null);
-
-  const stripePromise: Promise<StripeJs | null> | null = useMemo(() => {
-    if (!stripePublishableKey) return null;
-    return loadStripe(stripePublishableKey);
-  }, [stripePublishableKey]);
 
   const totalPence = cart.reduce(
     (sum, entry) => sum + entry.item.pricePence * entry.quantity,
@@ -77,22 +65,21 @@ export function CartCheckoutDrawer({
   );
   const totalCount = cart.reduce((sum, entry) => sum + entry.quantity, 0);
 
-  // Reset error when opening drawer
   useEffect(() => {
     if (isOpen && step === 'bag') {
       setErrorMessage(null);
     }
   }, [isOpen, step]);
 
-  const handleStartCheckout = async (mode: 'embedded' | 'hosted') => {
+  const handleProceedToStripe = async () => {
     setErrorMessage(null);
-    setBusy(true);
+    setRedirecting(true);
     try {
       let activeUser = user;
       if (!activeUser) {
         activeUser = await signInWithGoogle();
         if (!activeUser) {
-          setBusy(false);
+          setRedirecting(false);
           return;
         }
       }
@@ -101,34 +88,35 @@ export function CartCheckoutDrawer({
         cart,
         diningOption,
         tableOrNote,
-        checkoutMode: mode,
       });
 
       setActiveOrderId(result.orderId);
       setActiveSessionId(result.sessionId);
       setActiveOrderNumber(result.orderNumber);
+      setHostedUrl(result.hostedUrl);
 
-      if (mode === 'hosted' && result.hostedUrl) {
-        setHostedUrl(result.hostedUrl);
-        setStep('hosted_waiting');
-      } else if (result.clientSecret) {
-        setClientSecret(result.clientSecret);
-        setStep('embedded_checkout');
-      } else {
-        throw new Error('Stripe Checkout session did not return a valid client secret.');
+      // Direct full-page redirect on normal browser tabs (Vercel, custom domain, standalone tab)
+      const isEmbeddedInIframe = window.self !== window.top;
+      if (!isEmbeddedInIframe) {
+        window.location.assign(result.hostedUrl);
+        return;
       }
+
+      // Inside AI Studio preview iframe (where Stripe sets X-Frame-Options: DENY),
+      // present direct 1-click navigation to checkout.stripe.com
+      setStep('iframe_redirect_bridge');
+      setRedirecting(false);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : 'Unable to start Stripe Checkout.'
+        error instanceof Error ? error.message : 'Unable to redirect to Stripe Checkout.'
       );
-    } finally {
-      setBusy(false);
+      setRedirecting(false);
     }
   };
 
   const handleVerifyCompletion = useCallback(async () => {
     if (!activeSessionId) return;
-    setBusy(true);
+    setRedirecting(true);
     setErrorMessage(null);
     try {
       const { verification } = await confirmOrderPaidInFirestore({
@@ -142,7 +130,7 @@ export function CartCheckoutDrawer({
         onClearCart();
       } else {
         setErrorMessage(
-          `Stripe reports payment status as "${verification.paymentStatus}". Complete payment first, then click Verify.`
+          `Stripe payment status is "${verification.paymentStatus}". Complete payment on Stripe first, then click Verify.`
         );
       }
     } catch (error) {
@@ -150,19 +138,18 @@ export function CartCheckoutDrawer({
         error instanceof Error ? error.message : 'Could not verify payment status.'
       );
     } finally {
-      setBusy(false);
+      setRedirecting(false);
     }
   }, [activeOrderId, activeSessionId, onClearCart]);
 
-  const handleCancelCheckoutFlow = async () => {
+  const handleCancelPending = async () => {
     if (activeOrderId && step !== 'paid_receipt') {
       try {
         await cancelCustomerPendingOrder(activeOrderId);
       } catch {
-        // Order may already be settled or cancelled
+        // Ignore if already updated
       }
     }
-    setClientSecret(null);
     setHostedUrl(null);
     setActiveOrderId(null);
     setActiveSessionId(null);
@@ -176,7 +163,6 @@ export function CartCheckoutDrawer({
       setReceipt(null);
       setActiveOrderId(null);
       setActiveSessionId(null);
-      setClientSecret(null);
       setHostedUrl(null);
     }
     onClose();
@@ -191,26 +177,20 @@ export function CartCheckoutDrawer({
       aria-modal="true"
       aria-label="Order bag and Stripe Checkout"
     >
-      <div
-        className={`relative w-full ${
-          step === 'embedded_checkout' ? 'max-w-2xl' : 'max-w-lg'
-        } bg-[#FAF9F6] h-full flex flex-col shadow-2xl border-l border-stone-200 transition-transform duration-150`}
-      >
+      <div className="relative w-full max-w-lg bg-[#FAF9F6] h-full flex flex-col shadow-2xl border-l border-stone-200 transition-transform duration-150">
         {/* Drawer Header */}
         <div className="px-6 py-4 bg-white border-b border-stone-200 flex items-center justify-between gap-4">
           <div>
             <h2 className="font-display text-lg font-bold text-stone-950">
               {step === 'bag' && `Your Counter Bag (${totalCount})`}
-              {step === 'embedded_checkout' && `Stripe Checkout · ${activeOrderNumber}`}
-              {step === 'hosted_waiting' && `Complete Payment · ${activeOrderNumber}`}
+              {step === 'iframe_redirect_bridge' &&
+                `Continue to Stripe · ${activeOrderNumber}`}
               {step === 'paid_receipt' && 'Payment Confirmed'}
             </h2>
             <p className="text-xs text-stone-500">
               {step === 'bag' && 'All prices settled in British Pounds (£ GBP)'}
-              {step === 'embedded_checkout' &&
-                'Encrypted live payment powered directly by Stripe'}
-              {step === 'hosted_waiting' &&
-                'Finish payment on the Stripe Checkout tab, then verify below'}
+              {step === 'iframe_redirect_bridge' &&
+                'Redirecting securely to official Stripe Checkout'}
               {step === 'paid_receipt' && 'Verified directly with Stripe Live API'}
             </p>
           </div>
@@ -243,7 +223,7 @@ export function CartCheckoutDrawer({
                     Your counter bag is empty
                   </p>
                   <p className="text-sm text-stone-500 max-w-xs">
-                    Add any £1.00–£5.00 dish or drink from our menu to test live Stripe
+                    Add any £1.00–£5.00 dish or drink from our menu to proceed to Stripe
                     Checkout.
                   </p>
                   <button
@@ -358,7 +338,6 @@ export function CartCheckoutDrawer({
                     </div>
                   </div>
 
-                  {/* Clear Bag Action */}
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -374,53 +353,16 @@ export function CartCheckoutDrawer({
             </>
           )}
 
-          {step === 'embedded_checkout' && clientSecret && stripePromise && (
-            <div className="space-y-4">
-              <div className="bg-white border border-stone-200/80 rounded-xl p-3 overflow-hidden">
-                <EmbeddedCheckoutProvider
-                  stripe={stripePromise}
-                  options={{
-                    clientSecret,
-                    onComplete: () => {
-                      void handleVerifyCompletion();
-                    },
-                  }}
-                >
-                  <EmbeddedCheckout />
-                </EmbeddedCheckoutProvider>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 text-xs text-stone-500">
-                <button
-                  type="button"
-                  onClick={() => void handleCancelCheckoutFlow()}
-                  className="font-medium text-stone-600 hover:text-stone-950 underline underline-offset-4 cursor-pointer"
-                >
-                  Cancel & Return to Bag
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleVerifyCompletion()}
-                  disabled={busy}
-                  className="inline-flex items-center gap-1.5 font-semibold text-emerald-900 hover:text-emerald-950 cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${busy ? 'animate-spin' : ''}`} />
-                  <span>Verify Payment Status</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {step === 'hosted_waiting' && hostedUrl && (
+          {step === 'iframe_redirect_bridge' && hostedUrl && (
             <div className="bg-white border border-stone-200/80 rounded-xl p-6 space-y-5">
               <div className="space-y-2">
                 <h3 className="text-base font-semibold text-stone-950">
-                  Hosted Stripe Checkout Ready ({activeOrderNumber})
+                  Stripe Payment Page Ready ({activeOrderNumber})
                 </h3>
                 <p className="text-sm text-stone-600 leading-relaxed">
-                  Click the button below to open the official Stripe Checkout page in a new
-                  browser tab. Once you complete payment, return here and click{' '}
-                  <strong>Verify Payment</strong>.
+                  Because you are viewing inside an embedded preview frame, click below to
+                  open Stripe’s payment page directly. On your live Vercel domain, this
+                  redirects automatically.
                 </p>
               </div>
 
@@ -430,26 +372,28 @@ export function CartCheckoutDrawer({
                 rel="noopener noreferrer"
                 className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-semibold text-white bg-emerald-950 hover:bg-emerald-900 rounded-lg transition-colors"
               >
-                <span>Open Stripe Checkout Page</span>
+                <span>Go to Stripe Payment Page</span>
                 <ExternalLink className="w-4 h-4" />
               </a>
 
               <div className="pt-4 border-t border-stone-200 flex items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={() => void handleCancelCheckoutFlow()}
+                  onClick={() => void handleCancelPending()}
                   className="px-4 py-2 text-xs font-medium text-stone-600 hover:text-stone-950 cursor-pointer"
                 >
-                  Cancel Order
+                  Back to Bag
                 </button>
                 <button
                   type="button"
                   onClick={() => void handleVerifyCompletion()}
-                  disabled={busy}
+                  disabled={redirecting}
                   className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-emerald-950 bg-emerald-950/10 hover:bg-emerald-950/15 rounded-lg cursor-pointer"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${busy ? 'animate-spin' : ''}`} />
-                  <span>{busy ? 'Checking Stripe...' : 'I Have Paid · Verify Now'}</span>
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${redirecting ? 'animate-spin' : ''}`}
+                  />
+                  <span>{redirecting ? 'Checking...' : 'I Have Paid · Verify'}</span>
                 </button>
               </div>
             </div>
@@ -464,7 +408,7 @@ export function CartCheckoutDrawer({
                     Order {receipt.orderNumber || activeOrderNumber} Confirmed
                   </h3>
                   <p className="text-sm text-stone-600">
-                    Your live Stripe payment has been verified and sent to the kitchen.
+                    Your live Stripe payment has been verified and recorded in Firebase.
                   </p>
                 </div>
               </div>
@@ -477,49 +421,28 @@ export function CartCheckoutDrawer({
                   </dd>
                 </div>
                 <div className="py-2.5 flex justify-between gap-4">
-                  <dt className="text-stone-500">Stripe Status</dt>
-                  <dd className="font-semibold text-emerald-900">
-                    Verified Paid ({receipt.paymentStatus})
-                  </dd>
-                </div>
-                <div className="py-2.5 flex justify-between gap-4">
                   <dt className="text-stone-500">Payment Intent</dt>
                   <dd className="font-mono text-xs text-stone-700 truncate max-w-[220px]">
                     {receipt.paymentIntentId}
                   </dd>
                 </div>
-                <div className="py-2.5 flex justify-between gap-4">
-                  <dt className="text-stone-500">Receipt Email</dt>
-                  <dd className="text-xs text-stone-700 truncate max-w-[220px]">
-                    {receipt.customerEmail}
-                  </dd>
-                </div>
               </dl>
 
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleCloseDrawer();
-                    onChangeView('user');
-                  }}
-                  className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-emerald-950 hover:bg-emerald-900 rounded-lg cursor-pointer"
-                >
-                  Track in User Panel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCloseDrawer}
-                  className="px-4 py-2.5 text-sm font-semibold text-stone-700 bg-stone-100 hover:bg-stone-200 rounded-lg cursor-pointer"
-                >
-                  Done
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  handleCloseDrawer();
+                  onChangeView('user');
+                }}
+                className="w-full px-4 py-2.5 text-sm font-semibold text-white bg-emerald-950 hover:bg-emerald-900 rounded-lg cursor-pointer"
+              >
+                View Order in User Panel
+              </button>
             </div>
           )}
         </div>
 
-        {/* Sticky Bag Footer */}
+        {/* Sticky Bag Footer — Direct Stripe Redirect Button */}
         {step === 'bag' && cart.length > 0 && (
           <div className="p-6 bg-white border-t border-stone-200 space-y-4">
             <div className="space-y-1.5 text-sm">
@@ -547,39 +470,21 @@ export function CartCheckoutDrawer({
                     : `Sign In with Google to Pay ${formatGBP(totalPence)}`}
                 </span>
               </button>
-            ) : !stripePublishableKey ? (
-              <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-950 leading-relaxed">
-                Stripe environment variables are not configured yet. Add{' '}
-                <code className="font-mono font-semibold">STRIPE_SECRET_KEY</code> and{' '}
-                <code className="font-mono font-semibold">STRIPE_PUBLISHABLE_KEY</code> in
-                AI Studio <strong>Settings → Secrets</strong> to enable live payments.
-              </div>
             ) : (
-              <div className="space-y-2.5">
-                <button
-                  type="button"
-                  onClick={() => void handleStartCheckout('embedded')}
-                  disabled={busy}
-                  className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-semibold text-white bg-emerald-950 hover:bg-emerald-900 disabled:opacity-60 rounded-lg transition-colors cursor-pointer"
-                >
-                  <Lock className="w-4 h-4" />
-                  <span>
-                    {busy
-                      ? 'Preparing Stripe Checkout...'
-                      : `Pay ${formatGBP(totalPence)} via Stripe Checkout`}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void handleStartCheckout('hosted')}
-                  disabled={busy}
-                  className="w-full inline-flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-stone-600 hover:text-stone-950 cursor-pointer"
-                >
-                  <span>Or open Hosted Stripe Checkout in a new tab</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => void handleProceedToStripe()}
+                disabled={redirecting}
+                className="w-full inline-flex items-center justify-center gap-2 px-5 py-3.5 text-sm font-semibold text-white bg-emerald-950 hover:bg-emerald-900 disabled:opacity-60 rounded-lg transition-colors cursor-pointer"
+              >
+                <Lock className="w-4 h-4" />
+                <span>
+                  {redirecting
+                    ? 'Redirecting to Stripe Checkout...'
+                    : `Pay ${formatGBP(totalPence)} with Stripe`}
+                </span>
+                {!redirecting && <ArrowRight className="w-4 h-4" />}
+              </button>
             )}
           </div>
         )}

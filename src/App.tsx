@@ -97,7 +97,6 @@ function BistroAppContent() {
   });
   const [isCartOpen, setIsCartOpen] = useState(false);
 
-  const [stripePublishableKey, setStripePublishableKey] = useState('');
   const [returnReceipt, setReturnReceipt] = useState<StripeVerificationResult | null>(
     null
   );
@@ -112,20 +111,6 @@ function BistroAppContent() {
       // Ignore storage errors
     }
   }, [cart]);
-
-  // Load Stripe Publishable Key from server
-  useEffect(() => {
-    fetch('/api/stripe/config')
-      .then((r) => r.json())
-      .then((data: { publishableKey?: string }) => {
-        if (data.publishableKey) {
-          setStripePublishableKey(data.publishableKey);
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load Stripe configuration:', err);
-      });
-  }, []);
 
   // Real-time Firestore Menu Listener + Auto-Seed for First Admin Boot
   useEffect(() => {
@@ -343,7 +328,6 @@ function BistroAppContent() {
         onUpdateQuantity={handleUpdateQuantity}
         onClearCart={handleClearCart}
         onChangeView={setActiveView}
-        stripePublishableKey={stripePublishableKey}
       />
     </div>
   );
