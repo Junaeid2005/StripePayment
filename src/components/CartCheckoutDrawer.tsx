@@ -547,12 +547,19 @@ export function CartCheckoutDrawer({
                     : `Sign In with Google to Pay ${formatGBP(totalPence)}`}
                 </span>
               </button>
+            ) : !stripePublishableKey ? (
+              <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-950 leading-relaxed">
+                Stripe environment variables are not configured yet. Add{' '}
+                <code className="font-mono font-semibold">STRIPE_SECRET_KEY</code> and{' '}
+                <code className="font-mono font-semibold">STRIPE_PUBLISHABLE_KEY</code> in
+                AI Studio <strong>Settings → Secrets</strong> to enable live payments.
+              </div>
             ) : (
               <div className="space-y-2.5">
                 <button
                   type="button"
                   onClick={() => void handleStartCheckout('embedded')}
-                  disabled={busy || !stripePublishableKey}
+                  disabled={busy}
                   className="w-full inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-semibold text-white bg-emerald-950 hover:bg-emerald-900 disabled:opacity-60 rounded-lg transition-colors cursor-pointer"
                 >
                   <Lock className="w-4 h-4" />
