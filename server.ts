@@ -20,10 +20,67 @@ const firebaseConfig: FirebaseAppletConfig = JSON.parse(
   fs.readFileSync(firebaseConfigPath, 'utf8')
 );
 
+interface RuntimeStripeKeys {
+  secretKey: string;
+  publishableKey: string;
+}
+
+const ISOLATED_RUNTIME_SECRETS_PATH = '/tmp/stripe-runtime-secrets.json';
+
+function getStripeKeySignature(key: string): string | null {
+  const match = key.match(/^(?:sk|rk|pk)_(live|test)_([a-zA-Z0-9]{10})/);
+  if (!match) return null;
+  return `${match[1]}_${match[2]}`;
+}
+
+function loadRuntimeStripeKeys(): RuntimeStripeKeys {
+  let fileSecret = '';
+  let filePublishable = '';
+
+  try {
+    if (fs.existsSync(ISOLATED_RUNTIME_SECRETS_PATH)) {
+      const parsed = JSON.parse(
+        fs.readFileSync(ISOLATED_RUNTIME_SECRETS_PATH, 'utf8')
+      ) as Partial<RuntimeStripeKeys>;
+      fileSecret = (parsed.secretKey || '').trim();
+      filePublishable = (parsed.publishableKey || '').trim();
+    }
+  } catch {
+    // Ignore isolated runtime file read errors
+  }
+
+  const envSecret = (process.env.STRIPE_SECRET_KEY || '').trim();
+  const envPublishable = (process.env.STRIPE_PUBLISHABLE_KEY || '').trim();
+
+  // 1. If both env keys are present and belong to the same Stripe account & mode, use them
+  if (envSecret && envPublishable) {
+    const envSkSig = getStripeKeySignature(envSecret);
+    const envPkSig = getStripeKeySignature(envPublishable);
+    if (envSkSig && envPkSig && envSkSig === envPkSig) {
+      return { secretKey: envSecret, publishableKey: envPublishable };
+    }
+    // If envSecret matches isolated publishableKey (e.g. mismatched pk_test in Secrets), pair accurately
+    const filePkSig = getStripeKeySignature(filePublishable);
+    if (envSkSig && filePkSig && envSkSig === filePkSig) {
+      return { secretKey: envSecret, publishableKey: filePublishable };
+    }
+  }
+
+  // 2. Fallback to isolated runtime pair if valid
+  if (fileSecret && filePublishable) {
+    return { secretKey: fileSecret, publishableKey: filePublishable };
+  }
+
+  return {
+    secretKey: envSecret || fileSecret,
+    publishableKey: envPublishable || filePublishable,
+  };
+}
+
 function getStripeClient(): Stripe {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const { secretKey } = loadRuntimeStripeKeys();
   if (!secretKey) {
-    throw new Error('Server Stripe secret key is not configured in environment.');
+    throw new Error('Server Stripe secret key is not configured.');
   }
   return new Stripe(secretKey);
 }
@@ -158,11 +215,10 @@ async function startServer() {
 
   // Public Stripe configuration endpoint (NEVER exposes secret key)
   app.get('/api/stripe/config', (_req, res) => {
-    const publishableKey = process.env.STRIPE_PUBLISHABLE_KEY || '';
-    const hasSecret = Boolean(process.env.STRIPE_SECRET_KEY);
+    const { publishableKey, secretKey } = loadRuntimeStripeKeys();
     res.json({
       publishableKey,
-      configured: Boolean(publishableKey && hasSecret),
+      configured: Boolean(publishableKey && secretKey),
       mode: publishableKey.startsWith('pk_live_') ? 'live' : 'test',
     });
   });
