@@ -1,0 +1,360 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated customer profile isolated to owner and admin access.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name from Google account.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified email address of the user.",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar photo URL.",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of profile creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last profile update."
+        }
+      },
+      "required": ["uid", "displayName", "email", "photoURL", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator membership document keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID granted admin access.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Email address of the administrator.",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "addedBy": {
+          "type": "string",
+          "description": "UID of the administrator who granted access.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin access was granted."
+        }
+      },
+      "required": ["uid", "email", "addedBy", "createdAt"]
+    },
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "Restaurant food or drink item priced strictly between £1.00 (100p) and £5.00 (500p).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Dish or drink title.",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "description": "Tasting notes and preparation details.",
+          "minLength": 5,
+          "maxLength": 280
+        },
+        "category": {
+          "type": "string",
+          "description": "Menu section.",
+          "enum": ["Bites", "Bakery", "Drinks", "Sweets"],
+          "minLength": 2,
+          "maxLength": 30
+        },
+        "pricePence": {
+          "type": "integer",
+          "description": "Price in British pence from 100 (£1.00) to 500 (£5.00)."
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "URL or asset path of the item photograph.",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "dietaryNote": {
+          "type": "string",
+          "description": "Dietary indicator such as Vegetarian or Vegan.",
+          "minLength": 0,
+          "maxLength": 60
+        },
+        "available": {
+          "type": "boolean",
+          "description": "Whether the item is currently available for ordering."
+        },
+        "sortOrder": {
+          "type": "integer",
+          "description": "Display sort index."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated."
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "category",
+        "pricePence",
+        "imageUrl",
+        "dietaryNote",
+        "available",
+        "sortOrder",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer restaurant order paid in GBP via Stripe Checkout.",
+      "type": "object",
+      "properties": {
+        "orderNumber": {
+          "type": "string",
+          "description": "Human-readable order code.",
+          "minLength": 7,
+          "maxLength": 11,
+          "pattern": "^BF-[0-9]{4,8}$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the customer who placed the order.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Customer display name.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "customerEmail": {
+          "type": "string",
+          "format": "email",
+          "description": "Customer verified email.",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "diningOption": {
+          "type": "string",
+          "description": "Service mode.",
+          "enum": ["Dine In", "Takeaway"],
+          "minLength": 7,
+          "maxLength": 10
+        },
+        "tableOrNote": {
+          "type": "string",
+          "description": "Table number or kitchen note.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "itemsSummary": {
+          "type": "string",
+          "description": "Formatted summary of ordered items.",
+          "minLength": 2,
+          "maxLength": 500
+        },
+        "itemCount": {
+          "type": "integer",
+          "description": "Total quantity of items in the order."
+        },
+        "totalPence": {
+          "type": "integer",
+          "description": "Total order value in GBP pence."
+        },
+        "currency": {
+          "type": "string",
+          "description": "ISO currency code.",
+          "enum": ["gbp"],
+          "minLength": 3,
+          "maxLength": 3
+        },
+        "status": {
+          "type": "string",
+          "description": "Fulfillment lifecycle state.",
+          "enum": ["pending", "paid", "preparing", "ready", "completed", "cancelled"],
+          "minLength": 4,
+          "maxLength": 12
+        },
+        "paymentStatus": {
+          "type": "string",
+          "description": "Payment settlement state.",
+          "enum": ["unpaid", "paid"],
+          "minLength": 4,
+          "maxLength": 6
+        },
+        "stripeSessionId": {
+          "type": "string",
+          "description": "Stripe Checkout Session ID.",
+          "minLength": 5,
+          "maxLength": 200,
+          "pattern": "^cs_[a-zA-Z0-9_]+$"
+        },
+        "stripePaymentIntentId": {
+          "type": "string",
+          "description": "Stripe PaymentIntent ID once paid.",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "orderNumber",
+        "userId",
+        "customerName",
+        "customerEmail",
+        "diningOption",
+        "tableOrNote",
+        "itemsSummary",
+        "itemCount",
+        "totalPence",
+        "currency",
+        "status",
+        "paymentStatus",
+        "stripeSessionId",
+        "stripePaymentIntentId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Individual line item belonging to a parent Order subcollection.",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "description": "Parent order ID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner UID matching parent order userId.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "menuItemId": {
+          "type": "string",
+          "description": "Menu item identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Snapshot of item name at purchase time.",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "unitPricePence": {
+          "type": "integer",
+          "description": "Unit price in GBP pence (100 to 500)."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Quantity ordered (1 to 20)."
+        },
+        "lineTotalPence": {
+          "type": "integer",
+          "description": "Exact product of unitPricePence and quantity."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        }
+      },
+      "required": [
+        "orderId",
+        "userId",
+        "menuItemId",
+        "name",
+        "unitPricePence",
+        "quantity",
+        "lineTotalPence",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Private customer profile accessible strictly to owner and admin."
+    },
+    "/admins/{adminId}": {
+      "schema": "AdminRecord",
+      "description": "Administrator registry keyed by user UID."
+    },
+    "/menuItems/{itemId}": {
+      "schema": "MenuItem",
+      "description": "Restaurant £1-£5 menu catalog items."
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer orders tracked across Stripe Checkout and kitchen preparation."
+    },
+    "/orders/{orderId}/items/{lineId}": {
+      "schema": "OrderItem",
+      "description": "Line items subcollection under each order."
+    }
+  }
+}

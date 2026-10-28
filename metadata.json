@@ -1,0 +1,6 @@
+{
+  "name": "Bistro Five — Artisan Bites & Drinks",
+  "description": "Artisan restaurant and cafe offering freshly crafted £1–£5 menu items with secure Stripe checkout, Google Sign-In, user order tracking, and admin management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

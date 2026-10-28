@@ -1,0 +1,313 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Zero-lookup bootstrap admin helper safe for list queries
+    function isBootstrapAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'junaeidshohan2005@gmail.com';
+    }
+
+    // Full admin check for single-document operations
+    function isAdmin() {
+      return isBootstrapAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprints
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.uid == userId &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.photoURL is string && data.photoURL.size() <= 500 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAdminRecord(data, adminId) {
+      return data.keys().hasAll(['uid', 'email', 'addedBy', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'addedBy', 'createdAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.uid == adminId &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.addedBy is string && data.addedBy.size() >= 1 && data.addedBy.size() <= 128 &&
+        data.addedBy.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.addedBy == request.auth.uid &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidMenuItem(data) {
+      return data.keys().hasAll([
+          'name', 'description', 'category', 'pricePence', 'imageUrl',
+          'dietaryNote', 'available', 'sortOrder', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'name', 'description', 'category', 'pricePence', 'imageUrl',
+          'dietaryNote', 'available', 'sortOrder', 'createdAt', 'updatedAt'
+        ]) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 80 &&
+        data.description is string && data.description.size() >= 5 && data.description.size() <= 280 &&
+        data.category is string && data.category.size() >= 2 && data.category.size() <= 30 &&
+        data.category in ['Bites', 'Bakery', 'Drinks', 'Sweets'] &&
+        data.pricePence is int && data.pricePence >= 100 && data.pricePence <= 500 &&
+        data.imageUrl is string && data.imageUrl.size() >= 1 && data.imageUrl.size() <= 500 &&
+        data.dietaryNote is string && data.dietaryNote.size() <= 60 &&
+        data.available is bool &&
+        data.sortOrder is int && data.sortOrder >= 0 && data.sortOrder <= 1000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+          'orderNumber', 'userId', 'customerName', 'customerEmail',
+          'diningOption', 'tableOrNote', 'itemsSummary', 'itemCount',
+          'totalPence', 'currency', 'status', 'paymentStatus',
+          'stripeSessionId', 'stripePaymentIntentId', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'orderNumber', 'userId', 'customerName', 'customerEmail',
+          'diningOption', 'tableOrNote', 'itemsSummary', 'itemCount',
+          'totalPence', 'currency', 'status', 'paymentStatus',
+          'stripeSessionId', 'stripePaymentIntentId', 'createdAt', 'updatedAt'
+        ]) &&
+        data.orderNumber is string && data.orderNumber.size() >= 7 && data.orderNumber.size() <= 11 &&
+        data.orderNumber.matches('^BF-[0-9]{4,8}$') &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.userId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 100 &&
+        data.customerEmail is string && data.customerEmail.size() >= 3 && data.customerEmail.size() <= 160 &&
+        data.diningOption is string && data.diningOption.size() >= 7 && data.diningOption.size() <= 10 &&
+        data.diningOption in ['Dine In', 'Takeaway'] &&
+        data.tableOrNote is string && data.tableOrNote.size() <= 120 &&
+        data.itemsSummary is string && data.itemsSummary.size() >= 2 && data.itemsSummary.size() <= 500 &&
+        data.itemCount is int && data.itemCount >= 1 && data.itemCount <= 50 &&
+        data.totalPence is int && data.totalPence >= 100 && data.totalPence <= 25000 &&
+        data.currency is string && data.currency.size() == 3 && data.currency == 'gbp' &&
+        data.status is string && data.status.size() >= 4 && data.status.size() <= 12 &&
+        data.status in ['pending', 'paid', 'preparing', 'ready', 'completed', 'cancelled'] &&
+        data.paymentStatus is string && data.paymentStatus.size() >= 4 && data.paymentStatus.size() <= 6 &&
+        data.paymentStatus in ['unpaid', 'paid'] &&
+        data.stripeSessionId is string && data.stripeSessionId.size() >= 5 && data.stripeSessionId.size() <= 200 &&
+        data.stripeSessionId.matches('^cs_[a-zA-Z0-9_]+$') &&
+        data.stripePaymentIntentId is string && data.stripePaymentIntentId.size() <= 200 &&
+        (data.stripePaymentIntentId.size() == 0 || data.stripePaymentIntentId.matches('^pi_[a-zA-Z0-9_]+$')) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidOrderItem(data, orderId) {
+      return data.keys().hasAll([
+          'orderId', 'userId', 'menuItemId', 'name',
+          'unitPricePence', 'quantity', 'lineTotalPence', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'orderId', 'userId', 'menuItemId', 'name',
+          'unitPricePence', 'quantity', 'lineTotalPence', 'createdAt'
+        ]) &&
+        data.orderId is string && data.orderId.size() >= 1 && data.orderId.size() <= 128 &&
+        data.orderId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.orderId == orderId &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.userId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.userId == request.auth.uid &&
+        data.menuItemId is string && data.menuItemId.size() >= 1 && data.menuItemId.size() <= 128 &&
+        data.menuItemId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 80 &&
+        data.unitPricePence is int && data.unitPricePence >= 100 && data.unitPricePence <= 500 &&
+        data.quantity is int && data.quantity >= 1 && data.quantity <= 20 &&
+        data.lineTotalPence is int && data.lineTotalPence == data.unitPricePence * data.quantity &&
+        data.createdAt is timestamp;
+    }
+
+    function hasImmutableOrderFields() {
+      return incoming().orderNumber == existing().orderNumber &&
+        incoming().userId == existing().userId &&
+        incoming().customerEmail == existing().customerEmail &&
+        incoming().totalPence == existing().totalPence &&
+        incoming().currency == existing().currency &&
+        incoming().itemCount == existing().itemCount &&
+        incoming().itemsSummary == existing().itemsSummary &&
+        incoming().stripeSessionId == existing().stripeSessionId &&
+        incoming().createdAt == existing().createdAt;
+    }
+
+    function isOrderNotTerminal() {
+      return !(existing().status in ['completed', 'cancelled']);
+    }
+
+    // 1. User Profiles (PII Isolated to Owner & Admin)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrapAdmin();
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().email == request.auth.token.email &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt'])) ||
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    // 2. Admin Registry
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isBootstrapAdmin();
+      allow create: if isVerifiedUser() &&
+        isValidId(adminId) &&
+        isValidAdminRecord(incoming(), adminId) &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if false;
+      allow delete: if isValidId(adminId) && isAdmin();
+    }
+
+    // 3. Menu Items (£1.00 - £5.00 Catalog)
+    match /menuItems/{itemId} {
+      allow get: if isValidId(itemId) && (existing().available == true || isAdmin());
+      allow list: if existing().available == true || isBootstrapAdmin();
+      allow create: if isVerifiedUser() &&
+        isValidId(itemId) &&
+        isValidMenuItem(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isVerifiedUser() &&
+        isValidId(itemId) &&
+        isValidMenuItem(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'description', 'category', 'pricePence', 'imageUrl',
+          'dietaryNote', 'available', 'sortOrder', 'updatedAt'
+        ]);
+      allow delete: if isValidId(itemId) && isAdmin();
+    }
+
+    // 4. Customer Orders
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && (isOwner(existing().userId) || isAdmin());
+      allow list: if (isSignedIn() && existing().userId == request.auth.uid) || isBootstrapAdmin();
+      allow create: if isVerifiedUser() &&
+        isValidId(orderId) &&
+        isValidOrder(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        incoming().customerEmail == request.auth.token.email &&
+        incoming().status == 'pending' &&
+        incoming().paymentStatus == 'unpaid' &&
+        incoming().stripePaymentIntentId == '' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      allow update: if isVerifiedUser() &&
+        isValidId(orderId) &&
+        isValidOrder(incoming()) &&
+        incoming().updatedAt == request.time &&
+        hasImmutableOrderFields() &&
+        (
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'paymentStatus', 'stripePaymentIntentId', 'tableOrNote', 'updatedAt'
+            ])
+          ) ||
+          (
+            isOrderNotTerminal() &&
+            isOwner(existing().userId) &&
+            (
+              // Action 1: Confirm Verified Stripe Payment
+              (
+                existing().status == 'pending' &&
+                existing().paymentStatus == 'unpaid' &&
+                incoming().status == 'paid' &&
+                incoming().paymentStatus == 'paid' &&
+                incoming().stripePaymentIntentId.size() >= 5 &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'paymentStatus', 'stripePaymentIntentId', 'updatedAt'])
+              ) ||
+              // Action 2: Customer Cancel Unpaid Pending Order
+              (
+                existing().status == 'pending' &&
+                existing().paymentStatus == 'unpaid' &&
+                incoming().status == 'cancelled' &&
+                incoming().paymentStatus == 'unpaid' &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+              )
+            )
+          )
+        );
+      allow delete: if isValidId(orderId) && isAdmin();
+
+      // 5. Order Line Items Subcollection (Master Gate + Atomic Batch Sync)
+      match /items/{lineId} {
+        allow get: if isValidId(orderId) &&
+          isValidId(lineId) &&
+          (
+            isAdmin() ||
+            (
+              isSignedIn() &&
+              get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid
+            )
+          );
+        allow list: if (isSignedIn() && existing().userId == request.auth.uid) || isBootstrapAdmin();
+        allow create: if isVerifiedUser() &&
+          isValidId(orderId) &&
+          isValidId(lineId) &&
+          isValidOrderItem(incoming(), orderId) &&
+          incoming().createdAt == request.time &&
+          existsAfter(/databases/$(database)/documents/orders/$(orderId)) &&
+          getAfter(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid;
+        allow update: if false;
+        allow delete: if isValidId(orderId) && isValidId(lineId) && isAdmin();
+      }
+    }
+  }
+}
